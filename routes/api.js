@@ -12,36 +12,49 @@ var expect = require('chai').expect;
 var MongoClient = require('mongodb').MongoClient;
 var ObjectId = require('mongodb').ObjectId;
 const MONGODB_CONNECTION_STRING = process.env.DB;
-const helmet = require('helmet');
 const mongoose = require('mongoose')
-
+const helmet = require('helmet')
 //Example connection: MongoClient.connect(MONGODB_CONNECTION_STRING, function(err, db) {});
 
-module.exports = function (app) {
-
-  app.use(helmet.noCache())
-  app.use(helmet.hidePoweredBy({ setTo: 'PHP 4.2.0' }))
+module.exports = function (app) {  
     
+  // Hides used techlonogy on website
+  app.disable('x-powered-by');
+  app.use(helmet.hidePoweredBy({ setTo: 'PHP 4.2.0' }));
+  
+  // Stops saving cache
+  app.use(helmet.noCache());
+  
   app.route('/api/books')
     .get(function (req, res){
       //response will be array of book objects
       mongoose.connect(MONGODB_CONNECTION_STRING, { useNewUrlParser: true }, (err, db) => {
         if(err) throw err
         db.collection('books').find().toArray((err, result) => {
+          
+          expect(err, 'database find error').to.not.exist;
+          expect(result).to.exist;
+          expect(result).to.be.a('array');
+          
           for(var i=0; i < result.length; i++) {
             // count each amount of comments from all books
             result[i].commentcount = result[i].comments.length;
             delete result[i].comments
           }
           //json res format: [{"_id": bookid, "title": book_title, "commentcount": num_of_comments },...]
-          res.json([result])
+          res.json(result)
         })
       })
       
     })
     
     .post(function (req, res){
-      var title = req.body.title;      
+      var title = req.body.title;
+      if(!title) {
+        res.send('missing title')
+      } else {
+        expect(title, 'posted title').to.be.a('string')
+      }
       //response will contain new book object including atleast _id and title
       var book = {        
         book_title: title,
@@ -57,7 +70,12 @@ module.exports = function (app) {
     })
     
     .delete(function(req, res){
-      //if successful response will be 'complete delete successful'
+      mongoose.connect(MONGODB_CONNECTION_STRING, { useNewUrlParser: true }, function(err, db) {
+        expect(err, 'database error').to.not.exist;
+        var collection = db.collection('books');
+        collection.deleteMany();
+        res.send("complete delete successful");
+      });
     });
 
 
@@ -67,11 +85,17 @@ module.exports = function (app) {
       var bookid = req.params.id;
       var oid = new ObjectId(bookid)
       
-      mongoose.connect(MONGODB_CONNECTION_STRING, { useNewUrlParser: true }, (err, db) => {
-        db.collection('books').find({ _id: oid }).toArray((err, result) => {          
-          if(result.length === 0) res.send('the book doesnt exists')          
-          else res.json(result[0])
-        })
+      MongoClient.connect(MONGODB_CONNECTION_STRING, (err, db) => {
+        expect(err, 'database error').to.not.exist;
+        var collection = db.collection('books');
+        collection.find({_id:oid}).toArray(function(err, result) {
+          expect(err, 'database find error').to.not.exist;
+          if(result.length === 0) {
+            res.send('no book exists');
+          } else {
+            res.json(result[0]);
+          }
+        });
       })
       //json res format: {"_id": bookid, "title": book_title, "comments": [comment,comment,...]}
     })
